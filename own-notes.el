@@ -28,8 +28,7 @@ The `FILENAME' should be a exists org file on `own-notes-directory'.
 If `PROPERTY' not exist return nil."
   (let ((value) (property (upcase property)))
     (with-current-buffer (find-file-noselect filename)
-      (setq value (cadr (assoc property (org-collect-keywords `(,property)))))
-      (kill-buffer))
+      (setq value (cadr (assoc property (org-collect-keywords `(,property))))))
     (when value (substring-no-properties value))))
 
 (defun own-notes--get-all-notes ()
@@ -89,7 +88,7 @@ If `PROPERTY' not exist return nil."
 
 (defun own-notes--processing-tags (tags)
   "TODO: Docstring, `TAGS'."
-  (string-join (mapcar #'string-trim (string-split tags ",")) ":"))
+  (if tags (format ":%s:" (string-join (mapcar #'string-trim tags) ":")) ""))
 
 (defun own-notes--create-new-uuid ()
   "TODO: Docstring."
@@ -99,8 +98,7 @@ If `PROPERTY' not exist return nil."
   "TODO: Docstring, `FILENAME'."
   (let*  ((title (call-interactively #'own-notes--get-title))
           (tags  (call-interactively #'own-notes--get-tags))
-          (tags  (own-notes--processing-tags tags))
-          (tags  (format ":%s:" tags)))
+          (tags  (own-notes--processing-tags tags)))
     (make-empty-file filename)
     (own-notes--format-new-note :filename filename
                                 :title title
@@ -120,8 +118,7 @@ If `PROPERTY' not exist return nil."
                               (format "#+idendifier: %s\n" uuid)))
     (with-current-buffer (find-file-noselect filename)
       (insert note-format)
-      (save-buffer)
-      (kill-buffer))
+      (save-buffer))
     (own-notes--update-title-completions)
     (own-notes--update-tags-completions)))
 
@@ -141,7 +138,11 @@ If `PROPERTY' not exist return nil."
   "TODO: Docstring."
   (interactive)
   (own-notes--format-filename
-   (completing-read "note: " own-notes--files-completions)))
+   (let ((completions own-notes--files-completions)
+         (prompt "note: "))
+     (if completions
+         (completing-read prompt completions)
+       (read-file-name prompt own-notes-directory)))))
 
 (defun own-notes-subdirectory ()
   "Open or create note in a subdirectory."
@@ -155,6 +156,18 @@ If `PROPERTY' not exist return nil."
         (own-notes--create-subdirectory filename))
       (own-notes-create-new filename)
       (find-file filename))))
+
+(defun own-notes-add-link ()
+  "TODO: Docstring."
+  (interactive)
+  (let* ((default-directory own-notes-directory)
+         (filename (call-interactively #'own-notes--get-filename))
+         (linkname (read-string "Description: " nil nil "link")))
+    (unless (file-exists-p filename)
+      (unless (directory-name-p (file-name-directory filename))
+        (own-notes--create-subdirectory filename))
+      (own-notes-create-new filename))
+    (org-insert-link "file:" filename linkname)))
 
 ;;;###autoload
 (defun own-notes-open-or-create ()
