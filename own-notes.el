@@ -12,9 +12,11 @@
   :tag "Own Notes")
 
 (defvar own-notes--default-directory "~/.emacs.d/own-notes/")
+(defconst own-notes--history-file "~/.emacs.d/own-notes")
 (defconst own-notes-extension "org" "Extension for notes.")
 
-(defcustom own-notes-directory (expand-file-name own-notes--default-directory)
+(defcustom own-notes-directory
+  (expand-file-name own-notes--default-directory)
   "Default directory path for own-notes."
   :type 'path
   :initialize #'custom-initialize-default
@@ -28,7 +30,8 @@ The `FILENAME' should be a exists org file on `own-notes-directory'.
 If `PROPERTY' not exist return nil."
   (let ((value) (property (upcase property)))
     (with-current-buffer (find-file-noselect filename)
-      (setq value (cadr (assoc property (org-collect-keywords `(,property))))))
+      (setq value
+            (cadr (assoc property (org-collect-keywords `(,property))))))
     (when value (substring-no-properties value))))
 
 (defun own-notes--get-all-notes ()
@@ -40,7 +43,8 @@ If `PROPERTY' not exist return nil."
   (let ((notes (own-notes--get-all-notes))
         (properties '()))
     (dolist (note notes)
-      (push (own-notes--get-property-from-note note property) properties))
+      (push
+       (own-notes--get-property-from-note note property) properties))
     properties))
 
 (defun own-notes--get-title-completions ()
@@ -52,29 +56,69 @@ If `PROPERTY' not exist return nil."
   (let ((tags-for-files (own-notes--get-property-completions "filetags"))
         (tags '()))
     (dolist (tags-for-file tags-for-files)
-      (let ((tags-for-file (seq-filter #'(lambda (tag)
-                                           (not (string-empty-p tag)))
-                                       (string-split tags-for-file ":"))))
+      (let ((tags-for-file
+             (seq-filter #'(lambda (tag)
+                             (not (string-empty-p tag)))
+                         (string-split tags-for-file ":"))))
         (dolist (tag tags-for-file)
           (unless (seq-contains-p tags tag)
             (push tag tags)))))
     tags))
 
-(defvar-local own-notes--title-completions nil)
-(defvar-local own-notes--tags-completions nil)
-(defvar-local own-notes--files-completions nil)
+(defvar own-notes--title-completions nil)
+(defvar own-notes--tags-completions nil)
+(defvar own-notes--files-completions nil)
 
 (defun own-notes--update-title-completions ()
   "TODO: Dcostring."
-  (setq-local own-notes--title-completions (own-notes--get-title-completions)))
+  (setq own-notes--title-completions
+              (own-notes--get-title-completions)))
 
 (defun own-notes--update-tags-completions ()
   "TODO: Dcostring."
-  (setq-local own-notes--tags-completions (own-notes--get-title-completions)))
+  (setq own-notes--tags-completions
+              (own-notes--get-tags-completions)))
 
 (defun own-notes--update-files-completions ()
   "TODO: Dcostring."
-  (setq-local own-notes--files-completions (own-notes--get-all-notes)))
+  (setq own-notes--files-completions (own-notes--get-all-notes)))
+
+(defun own-notes--updates-completions ()
+  "TODO: Docstring."
+  (own-notes--update-files-completions)
+  (own-notes--update-title-completions)
+  (own-notes--update-tags-completions))
+
+(defun own-notes--write-list-completions (completions)
+  "TODO: Docstring, `COMPLETIONS'."
+  (let ((value (symbol-value completions)))
+    (insert (format "\n(setq %S '(" completions))
+    (dolist (e value)
+      (insert (format "\n        %S" e)))
+    (insert "\n        ))")))
+
+(defun own-notes--save-history-completions ()
+  "TODO: Docstring."
+  (own-notes--updates-completions)
+  (condition-case error
+      (let ((temp-buffer (generate-new-buffer " *own-notes-history-buffer*")))
+	    (with-current-buffer
+          temp-buffer
+		  (erase-buffer)
+		  (own-notes--write-list-completions 'own-notes--files-completions)
+		  (own-notes--write-list-completions 'own-notes--title-completions)
+		  (own-notes--write-list-completions 'own-notes--tags-completions)
+		  (write-region (point-min) (point-max)
+					    own-notes--history-file
+					    nil 'silent nil nil))
+	    (kill-buffer temp-buffer))
+	(error
+	 (warn "save completions: %s" (error-message-string error)))))
+
+(defun own-notes--load-history-completions ()
+  "TODO: Docstring."
+  (when (file-exists-p own-notes--history-file)
+    (load own-notes--history-file 'noerror 'nomessage)))
 
 (defun own-notes--get-title ()
   "TODO: Dcostring."
@@ -84,11 +128,13 @@ If `PROPERTY' not exist return nil."
 (defun own-notes--get-tags ()
   "TODO: Docstring."
   (interactive)
-  (completing-read-multiple "tags: " own-notes--tags-completions nil nil))
+  (completing-read-multiple "tags: "
+                            own-notes--tags-completions nil nil))
 
 (defun own-notes--processing-tags (tags)
   "TODO: Docstring, `TAGS'."
-  (if tags (format ":%s:" (string-join (mapcar #'string-trim tags) ":")) ""))
+  (if tags (format ":%s:"
+                   (string-join (mapcar #'string-trim tags) ":")) ""))
 
 (defun own-notes--create-new-uuid ()
   "TODO: Docstring."
@@ -118,9 +164,7 @@ If `PROPERTY' not exist return nil."
                               (format "#+idendifier: %s\n" uuid)))
     (with-current-buffer (find-file-noselect filename)
       (insert note-format)
-      (save-buffer))
-    (own-notes--update-title-completions)
-    (own-notes--update-tags-completions)))
+      (save-buffer))))
 
 (defun own-notes--format-filename (filename)
   "TODO: Docstring, `FILENAME'."
@@ -169,9 +213,17 @@ If `PROPERTY' not exist return nil."
       (own-notes-create-new filename))
     (org-insert-link "file:" filename linkname)))
 
+(defun own-notes--check-exists-files/dirs ()
+  "TODO: Dcostring."
+  (unless (directory-name-p own-notes-directory)
+    (make-directory own-notes-directory t))
+  (unless (file-exists-p own-notes--history-file)
+    (make-empty-file own-notes--history-file)))
+
 ;;;###autoload
 (defun own-notes-open-or-create ()
-  "Open or create note.  If not exist create a new in `own-notes-direcotory'."
+  "Open or create note.
+If not exist create a new in `own-notes-direcotory'."
   (interactive)
   (let* ((default-directory own-notes-directory)
          (filename (call-interactively #'own-notes--get-filename))
@@ -185,8 +237,11 @@ If `PROPERTY' not exist return nil."
   (interactive)
   (own-notes-open-or-create))
 
-(unless (directory-name-p own-notes-directory)
-  (make-directory own-notes-directory t))
+(eval-after-load 'own-notes
+  (own-notes--check-exists-files/dirs))
+
+(add-hook 'after-init-hook #'own-notes--load-history-completions)
+(add-hook 'kill-emacs-hook #'own-notes--save-history-completions)
 
 (provide 'own-notes)
 ;;; own-notes.el ends here
